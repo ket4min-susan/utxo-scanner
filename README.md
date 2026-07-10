@@ -4,8 +4,8 @@ A standalone reference app that monitors the **stealth UTXOs** of a Tari Ootle r
 output's viewable balance with the resource's ElGamal view key, tracks spend state, and serves the results
 over a REST API and embedded web UI.
 
-It doubles as a dogfood for [`ootle-rs`](https://github.com/tari-project/tari-ootle/tree/development/crates/wallet/ootle-rs):
-the stream → fetch → decrypt pipeline is built on `ootle-rs` primitives.
+<img width="1209" height="596" alt="image" src="https://github.com/user-attachments/assets/1e1ea74c-1498-4569-b412-d7598b78fa89" />
+
 
 ## What it does
 
