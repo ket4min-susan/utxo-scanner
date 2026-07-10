@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ootle · Stealth UTXO Monitor</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%230d0e14'/%3E%3Ctext x='50' y='68' font-size='60' text-anchor='middle' fill='%23d14bf0'%3E%E2%97%88%3C/text%3E%3C/svg%3E" />
+<style>
+  :root {
+    --bg: #0a0b10;
+    --bg-panel: #12131c;
+    --bg-panel-2: #171826;
+    --bg-input: #0d0e16;
+    --line: #262838;
+    --line-soft: #1c1e2c;
+    --text: #e6e7f0;
+    --text-dim: #9a9cb4;
+    --text-faint: #61637e;
+    --accent: #d14bf0;
+    --accent-dim: #8b2fa5;
+    --green: #46e0a0;
+    --amber: #f0b429;
+    --red: #f0556b;
+    --blue: #4bb8f0;
+    --grey: #6a6d85;
+    --glow: 0 0 0 1px rgba(209,75,240,.35), 0 0 24px -6px rgba(209,75,240,.5);
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f4f4f7; --bg-panel: #ffffff; --bg-panel-2: #f7f7fb; --bg-input: #ffffff;
+      --line: #e0e0e8; --line-soft: #ececf2; --text: #17182a; --text-dim: #5a5c74;
+      --text-faint: #9092a8; --accent: #a824c4; --accent-dim: #c76ee0;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    background-image:
+      linear-gradient(var(--line-soft) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line-soft) 1px, transparent 1px);
+    background-size: 44px 44px;
+    background-position: -1px -1px;
+  }
+  a { color: var(--accent); }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 0 24px 80px; }
+
+  header {
+    position: sticky; top: 0; z-index: 20;
+    backdrop-filter: blur(12px);
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 28px;
+  }
+  .head-inner { max-width: 1240px; margin: 0 auto; padding: 16px 24px; display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: baseline; gap: 10px; }
+  .brand .mark { color: var(--accent); font-size: 18px; text-shadow: 0 0 16px var(--accent); }
+  .brand h1 { font-size: 14px; letter-spacing: .22em; text-transform: uppercase; margin: 0; font-weight: 600; }
+  .brand .sub { color: var(--text-faint); font-size: 11px; letter-spacing: .18em; text-transform: uppercase; }
+  .head-stats { margin-left: auto; display: flex; gap: 22px; align-items: center; flex-wrap: wrap; }
+  .stat { display: flex; flex-direction: column; line-height: 1.25; }
+  .stat b { font-size: 13px; }
+  .stat span { color: var(--text-faint); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+  .dot.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .dot.off { background: var(--red); box-shadow: 0 0 8px var(--red); }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    animation: rise .5s cubic-bezier(.2,.7,.3,1) backwards;
+  }
+  .panel + .panel, .grid + .panel, .panel + .grid { margin-top: 20px; }
+  .grid > .panel { margin-top: 0; }
+  @keyframes rise { from { opacity: 0; transform: translateY(10px); } }
+  .panel-h {
+    display: flex; align-items: center; gap: 10px;
+    padding: 13px 16px; border-bottom: 1px solid var(--line);
+    background: var(--bg-panel-2);
+  }
+  .panel-h h2 { margin: 0; font-size: 11px; letter-spacing: .2em; text-transform: uppercase; color: var(--text-dim); font-weight: 600; }
+  .panel-h .count { margin-left: auto; color: var(--text-faint); font-size: 11px; }
+  .panel-b { padding: 16px; }
+
+  label.f { display: block; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-faint); margin: 0 0 5px; }
+  input, select, button {
+    font-family: var(--mono); font-size: 13px; color: var(--text);
+    background: var(--bg-input); border: 1px solid var(--line); border-radius: 7px;
+    padding: 9px 11px; outline: none; transition: border-color .15s, box-shadow .15s;
+  }
+  input:focus, select:focus { border-color: var(--accent-dim); box-shadow: var(--glow); }
+  input::placeholder { color: var(--text-faint); }
+  .row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 120px; }
+  input, select { width: 100%; }
+  button {
+    cursor: pointer; letter-spacing: .1em; text-transform: uppercase; font-size: 11px;
+    border-color: var(--accent-dim); color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    white-space: nowrap;
+  }
+  button:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); box-shadow: var(--glow); }
+  button:active { transform: translateY(1px); }
+  button.ghost { border-color: var(--line); color: var(--text-dim); background: transparent; }
+  button.ghost:hover { border-color: var(--text-dim); color: var(--text); box-shadow: none; }
+  button.danger { border-color: color-mix(in srgb, var(--red) 45%, transparent); color: var(--red); background: color-mix(in srgb, var(--red) 8%, transparent); }
+  button.danger:hover { background: color-mix(in srgb, var(--red) 18%, transparent); box-shadow: none; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+
+  .tbl-scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th { text-align: left; padding: 9px 12px; color: var(--text-faint); font-weight: 500; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg-panel); }
+  td { padding: 9px 12px; border-bottom: 1px solid var(--line-soft); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--bg-panel-2); }
+  .mono-id { color: var(--text-dim); font-size: 11px; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .val { color: var(--green); font-variant-numeric: tabular-nums; }
+  .val.dim { color: var(--text-faint); }
+
+  .chip { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; border: 1px solid; white-space: nowrap; }
+  .chip.unspent { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); background: color-mix(in srgb, var(--green) 10%, transparent); }
+  .chip.spent { color: var(--text-dim); border-color: var(--line); }
+  .chip.burnt { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); background: color-mix(in srgb, var(--red) 10%, transparent); }
+  .chip.decrypted { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
+  .chip.decrypting { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); animation: pulse 1.6s ease-in-out infinite; }
+  .chip.failed { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
+  .chip.failedoutofrange { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 40%, transparent); background: color-mix(in srgb, var(--amber) 8%, transparent); }
+  .chip.nociphertext { color: var(--grey); border-color: var(--line); }
+  @keyframes pulse { 50% { opacity: .5; } }
+  .badge-run { color: var(--green); }
+  .badge-stop { color: var(--text-faint); }
+
+  .counts { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--text-dim); }
+  .counts b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .meter { height: 4px; border-radius: 3px; overflow: hidden; display: flex; margin: 8px 0 2px; background: var(--line-soft); }
+  .meter i { height: 100%; }
+
+  .empty { padding: 34px 16px; text-align: center; color: var(--text-faint); font-size: 12px; }
+  .toast-wrap { position: fixed; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 100; }
+  .toast { padding: 11px 15px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg-panel); font-size: 12px; max-width: 380px; box-shadow: 0 8px 30px -10px rgba(0,0,0,.6); animation: rise .3s backwards; }
+  .toast.err { border-color: color-mix(in srgb, var(--red) 50%, transparent); color: var(--red); }
+  .toast.ok { border-color: color-mix(in srgb, var(--green) 45%, transparent); color: var(--green); }
+  .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--bg-panel-2); }
+  .toolbar select { width: auto; min-width: 130px; padding: 7px 9px; }
+  .spacer { flex: 1; }
+  .switch { display: inline-flex; align-items: center; gap: 7px; color: var(--text-dim); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; cursor: pointer; user-select: none; }
+  .switch input { width: auto; }
+  .hint { color: var(--text-faint); font-size: 11px; margin-top: 9px; }
+  .rowbtns { display: flex; gap: 6px; justify-content: flex-end; }
+  .rowbtns button { padding: 5px 9px; font-size: 10px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="head-inner">
+    <div class="brand">
+      <span class="mark">◈</span>
+      <h1>Stealth UTXO Monitor</h1>
+      <span class="sub">Ootle</span>
+    </div>
+    <div class="head-stats" id="head-stats">
+      <div class="stat"><b id="hs-indexer"><span class="dot off"></span>—</b><span>Indexer</span></div>
+      <div class="stat"><b id="hs-lookup">—</b><span>Lookup range</span></div>
+      <div class="stat"><b id="hs-workers">—</b><span>Decrypt workers</span></div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="grid">
+    <div class="panel" style="animation-delay:.02s">
+      <div class="panel-h"><h2>View Keys</h2><span class="count" id="vk-count"></span></div>
+      <div class="panel-b">
+        <div class="row">
+          <div><label class="f">Label</label><input id="vk-label" placeholder="auditor-key" /></div>
+          <div style="flex:2"><label class="f">Secret hex — optional (import)</label><input id="vk-secret" placeholder="leave blank to generate" spellcheck="false" /></div>
+          <button id="vk-add">Add key</button>
+        </div>
+        <div class="hint">The monitor holds only view <em>secrets</em> — a resource-wide auditor key, never a spend key.</div>
+        <div class="tbl-scroll" style="margin-top:14px">
+          <table><thead><tr><th>#</th><th>Label</th><th>Public key</th><th></th></tr></thead>
+          <tbody id="vk-rows"></tbody></table>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" style="animation-delay:.08s">
+      <div class="panel-h"><h2>Resources</h2><span class="count" id="res-count"></span></div>
+      <div class="panel-b">
+        <div class="row">
+          <div style="flex:3"><label class="f">Stealth resource address</label><input id="res-addr" placeholder="resource_…" spellcheck="false" /></div>
+          <button id="res-add">Monitor</button>
+        </div>
+        <div class="hint">Validated 3 ways: must be a <em>stealth</em> resource, must be viewable, and its view key must match one above.</div>
+        <div id="res-list" style="margin-top:14px"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" style="animation-delay:.14s">
+    <div class="panel-h"><h2>UTXO Ledger</h2><span class="count" id="utxo-count"></span></div>
+    <div class="toolbar">
+      <select id="f-resource" title="resource"></select>
+      <select id="f-spend"><option value="">spend · any</option><option>Unspent</option><option>Spent</option><option>Burnt</option></select>
+      <select id="f-decrypt"><option value="">decrypt · any</option><option>Decrypting</option><option>Decrypted</option><option>Failed</option><option>FailedOutOfRange</option><option>NoCiphertext</option></select>
+      <button class="ghost" id="f-apply">Filter</button>
+      <button class="ghost" id="f-reprocess" title="Re-enqueue out-of-range rows">Reprocess ⤴</button>
+      <div class="spacer"></div>
+      <label class="switch"><input type="checkbox" id="f-auto" checked /> Auto-refresh</label>
+    </div>
+    <div class="tbl-scroll">
+      <table>
+        <thead><tr><th>UTXO id</th><th>Value</th><th>Spend</th><th>Decrypt</th><th class="num">Tag</th><th class="num">Created v</th></tr></thead>
+        <tbody id="utxo-rows"></tbody>
+      </table>
+    </div>
+    <div id="utxo-more" style="padding:12px 16px; text-align:center"></div>
+  </div>
+</div>
+
+<div class="toast-wrap" id="toasts"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const el = (t, a={}, ...kids) => { const e = document.createElement(t); for (const k in a) { if (k==='class') e.className=a[k]; else if (k==='html') e.innerHTML=a[k]; else e.setAttribute(k,a[k]); } for (const c of kids) e.append(c); return e; };
+const state = { resources: [], divisibility: {}, cursor: null, rows: [] };
+
+async function api(path, opts) {
+  const r = await fetch('/api' + path, { headers: { 'content-type': 'application/json' }, ...opts });
+  if (!r.ok) {
+    let msg = r.statusText;
+    try { msg = (await r.json()).error || msg; } catch {}
+    throw new Error(msg);
+  }
+  return r.status === 204 ? null : r.json();
+}
+function toast(msg, kind='ok') {
+  const t = el('div', { class: 'toast ' + kind }, msg);
+  $('#toasts').append(t);
+  setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity .4s'; setTimeout(() => t.remove(), 400); }, 4200);
+}
+const short = h => h ? h.slice(0, 10) + '…' + h.slice(-6) : '';
+function fmtValue(v, div) {
+  if (v == null) return { txt: '—', dim: true };
+  if (!div) return { txt: String(v), dim: false };
+  const s = String(v).padStart(div + 1, '0');
+  const whole = s.slice(0, -div) || '0';
+  const frac = s.slice(-div).replace(/0+$/, '');
+  return { txt: whole + (frac ? '.' + frac : ''), dim: false };
+}
+const chip = (cls, txt) => el('span', { class: 'chip ' + cls.toLowerCase() }, txt);
+
+async function loadStatus() {
+  try {
+    const s = await api('/status');
+    $('#hs-indexer').innerHTML = '<span class="dot on"></span>online';
+    $('#hs-lookup').textContent = s.lookup.min.toLocaleString() + '–' + s.lookup.max.toLocaleString();
+    $('#hs-workers').textContent = s.workers_available + ' free';
+  } catch (e) {
+    $('#hs-indexer').innerHTML = '<span class="dot off"></span>offline';
+  }
+}
+
+async function loadViewKeys() {
+  const keys = await api('/view-keys');
+  $('#vk-count').textContent = keys.length + ' key' + (keys.length === 1 ? '' : 's');
+  const tb = $('#vk-rows'); tb.innerHTML = '';
+  if (!keys.length) { tb.append(el('tr', {}, el('td', { colspan: 4, class: 'empty' }, 'No view keys yet.'))); return; }
+  for (const k of keys) {
+    tb.append(el('tr', {},
+      el('td', { class: 'mono-id' }, '#' + k.id),
+      el('td', {}, k.label),
+      el('td', { class: 'mono-id', title: k.public }, short(k.public)),
+      el('td', {}, (() => {
+        const wrap = el('div', { class: 'rowbtns' });
+        const reveal = el('button', { class: 'ghost' }, 'Reveal');
+        reveal.onclick = async () => {
+          try { const r = await api('/view-keys/' + k.id + '/secret'); prompt('Secret hex for #' + k.id + ' (' + k.label + ')', r.secret_hex); }
+          catch (e) { toast(e.message, 'err'); }
+        };
+        const del = el('button', { class: 'danger' }, 'Del');
+        del.onclick = async () => {
+          if (!confirm('Delete view key #' + k.id + '?')) return;
+          try { await api('/view-keys/' + k.id, { method: 'DELETE' }); toast('Deleted key #' + k.id); refreshKeysAndResources(); }
+          catch (e) { toast(e.message, 'err'); }
+        };
+        wrap.append(reveal, del); return wrap;
+      })())
+    ));
+  }
+}
+$('#vk-add').onclick = async () => {
+  const label = $('#vk-label').value.trim();
+  if (!label) { toast('Label required', 'err'); return; }
+  const secret_hex = $('#vk-secret').value.trim() || null;
+  try {
+    const r = await api('/view-keys', { method: 'POST', body: JSON.stringify({ label, secret_hex }) });
+    toast('Added key #' + r.id + ' · ' + short(r.public));
+    $('#vk-label').value = ''; $('#vk-secret').value = '';
+    loadViewKeys();
+  } catch (e) { toast(e.message, 'err'); }
+};
+
+function countsBar(c) {
+  const segs = [['unspent', 'var(--green)', c.unspent], ['spent', 'var(--text-faint)', c.spent], ['burnt', 'var(--red)', c.burnt]];
+  const total = Math.max(1, c.unspent + c.spent + c.burnt);
+  const meter = el('div', { class: 'meter' });
+  for (const [, col, n] of segs) if (n) meter.append(el('i', { style: `width:${(n / total) * 100}%;background:${col}` }));
+  const line = el('div', { class: 'counts' },
+    el('span', { html: `<b>${c.total}</b> total` }),
+    el('span', { html: `<b>${c.unspent}</b> unspent` }),
+    el('span', { html: `<b>${c.decrypted}</b> decrypted` }),
+    el('span', { html: `<b>${c.decrypting}</b> pending` }),
+    el('span', { html: `<b>${c.failed_out_of_range}</b> out-of-range` }),
+    el('span', { html: `<b>${c.no_ciphertext}</b> pruned` }),
+  );
+  return el('div', {}, meter, line);
+}
+async function loadResources() {
+  const rows = await api('/resources');
+  state.resources = rows;
+  state.divisibility = Object.fromEntries(rows.map(r => [r.address, r.divisibility]));
+  $('#res-count').textContent = rows.length + ' resource' + (rows.length === 1 ? '' : 's');
+  const box = $('#res-list'); box.innerHTML = '';
+  if (!rows.length) { box.append(el('div', { class: 'empty' }, 'No resources monitored. Add a stealth resource address above.')); }
+  for (const r of rows) {
+    const head = el('div', { style: 'display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap' },
+      el('span', { class: 'mono-id', title: r.address, style: 'color:var(--text)' }, short(r.address)),
+      el('span', { class: r.running ? 'badge-run' : 'badge-stop', style: 'font-size:10px;letter-spacing:.1em;text-transform:uppercase' }, r.running ? '● live' : '○ ' + (r.active ? 'idle' : 'disabled')),
+      el('span', { class: 'mono-id' }, 'vk#' + r.view_key_id + ' · div ' + r.divisibility),
+    );
+    const btns = el('div', { class: 'rowbtns', style: 'margin-left:auto' });
+    const toggle = el('button', { class: r.active ? 'ghost' : '' }, r.active ? 'Disable' : 'Enable');
+    toggle.onclick = async () => {
+      try { await api('/resources/' + encodeURIComponent(r.address) + (r.active ? '/disable' : '/enable'), { method: 'POST' }); toast((r.active ? 'Disabled' : 'Enabled') + ' resource'); loadResources(); }
+      catch (e) { toast(e.message, 'err'); }
+    };
+    btns.append(toggle);
+    head.append(btns);
+    const card = el('div', { style: 'border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:10px;background:var(--bg-panel-2)' }, head, countsBar(r.counts));
+    box.append(card);
+  }
+  syncResourceFilter();
+}
+$('#res-add').onclick = async () => {
+  const addr = $('#res-addr').value.trim();
+  if (!addr) { toast('Resource address required', 'err'); return; }
+  const btn = $('#res-add'); btn.disabled = true; btn.textContent = 'Validating…';
+  try {
+    const r = await api('/resources', { method: 'POST', body: JSON.stringify({ resource_address: addr }) });
+    toast('Now monitoring ' + short(r.address));
+    $('#res-addr').value = '';
+    loadResources();
+  } catch (e) { toast(e.message, 'err'); }
+  finally { btn.disabled = false; btn.textContent = 'Monitor'; }
+};
+
+function syncResourceFilter() {
+  const sel = $('#f-resource'); const prev = sel.value;
+  sel.innerHTML = '';
+  if (!state.resources.length) { sel.append(el('option', { value: '' }, 'no resources')); return; }
+  for (const r of state.resources) sel.append(el('option', { value: r.address }, short(r.address)));
+  if (prev && state.resources.some(r => r.address === prev)) sel.value = prev;
+}
+function utxoQuery(reset) {
+  const resource = $('#f-resource').value;
+  if (!resource) return null;
+  const p = new URLSearchParams({ resource, limit: '50' });
+  if ($('#f-spend').value) p.set('spend_state', $('#f-spend').value);
+  if ($('#f-decrypt').value) p.set('decrypt_state', $('#f-decrypt').value);
+  if (!reset && state.cursor) p.set('cursor', state.cursor);
+  return p;
+}
+async function loadUtxos(reset = true) {
+  const p = utxoQuery(reset);
+  const tb = $('#utxo-rows');
+  if (!p) { tb.innerHTML = ''; tb.append(el('tr', {}, el('td', { colspan: 6, class: 'empty' }, 'Add a resource to view its UTXOs.'))); $('#utxo-more').innerHTML = ''; $('#utxo-count').textContent = ''; return; }
+  const page = await api('/utxos?' + p.toString());
+  if (reset) { state.rows = []; tb.innerHTML = ''; }
+  state.rows.push(...page.items);
+  state.cursor = page.next_cursor;
+  const div = state.divisibility[$('#f-resource').value];
+  if (reset && !page.items.length) { tb.append(el('tr', {}, el('td', { colspan: 6, class: 'empty' }, 'No matching UTXOs.'))); }
+  for (const u of page.items) {
+    const v = fmtValue(u.value, div);
+    tb.append(el('tr', {},
+      el('td', { class: 'mono-id', title: u.utxo_id }, short(u.utxo_id)),
+      el('td', { class: 'val' + (v.dim ? ' dim' : '') }, v.txt),
+      el('td', {}, chip(u.spend_state, u.spend_state)),
+      el('td', {}, chip(u.decrypt_state, u.decrypt_state === 'FailedOutOfRange' ? 'out-of-range' : u.decrypt_state)),
+      el('td', { class: 'num mono-id' }, u.tag ?? '—'),
+      el('td', { class: 'num mono-id' }, u.created_state_version ?? '—'),
+    ));
+  }
+  $('#utxo-count').textContent = state.rows.length + ' shown';
+  const more = $('#utxo-more'); more.innerHTML = '';
+  if (state.cursor) { const b = el('button', { class: 'ghost' }, 'Load more'); b.onclick = () => loadUtxos(false); more.append(b); }
+}
+$('#f-apply').onclick = () => loadUtxos(true);
+$('#f-resource').onchange = () => loadUtxos(true);
+$('#f-reprocess').onclick = async () => {
+  const resource = $('#f-resource').value;
+  try { const r = await api('/reprocess-failed' + (resource ? '?resource=' + encodeURIComponent(resource) : ''), { method: 'POST' }); toast('Re-enqueued ' + r.requeued + ' out-of-range row(s)'); }
+  catch (e) { toast(e.message, 'err'); }
+};
+
+function refreshKeysAndResources() { loadViewKeys(); loadResources(); }
+async function tick() {
+  loadStatus();
+  loadResources();
+  if ($('#f-auto').checked) loadUtxos(true);
+}
+async function boot() {
+  await Promise.allSettled([loadStatus(), loadViewKeys(), loadResources()]);
+  loadUtxos(true);
+  setInterval(tick, 5000);
+}
+boot();
+</script>
+</body>
+</html>
