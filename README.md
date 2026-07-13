@@ -93,9 +93,8 @@ cargo build --release -p ootle-utxo-monitor
 cargo test
 ```
 
-> **Note:** the Ootle dependencies are currently path-linked to a sibling `tari-ootle` checkout (see
-> `Cargo.toml`), so a checkout of [`tari-project/tari-ootle`](https://github.com/tari-project/tari-ootle) is
-> expected at `../dan` relative to this repository.
+The Ootle dependencies (`ootle-rs`, `tari_ootle_common_types`, `tari_template_lib_types`) are pulled from
+[crates.io](https://crates.io/crates/ootle-rs), so the repository builds standalone.
 
 ## License
 

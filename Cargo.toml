@@ -12,10 +12,10 @@ repository = "https://github.com/tari-project/ootle-utxo-monitor"
 [workspace.dependencies]
 utxo-monitor-core = { path = "crates/monitor-core" }
 
-# Ootle dependencies — path-linked into the sibling checkout for now (see DESIGN.md §3).
-ootle-rs = { path = "../dan/crates/wallet/ootle-rs", features = ["mmap-value-lookup"] }
-tari_ootle_common_types = { path = "../dan/crates/common_types" }
-tari_template_lib_types = { path = "../dan/crates/template_lib_types" }
+# Ootle dependencies (published on crates.io).
+ootle-rs = { version = "0.14.0", features = ["mmap-value-lookup"] }
+tari_ootle_common_types = "0.35.2"
+tari_template_lib_types = "0.28.0"
 tari_crypto = "0.23"
 
 anyhow = "1"
