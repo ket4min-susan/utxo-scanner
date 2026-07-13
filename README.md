@@ -93,9 +93,6 @@ cargo build --release -p ootle-utxo-monitor
 cargo test
 ```
 
-The Ootle dependencies (`ootle-rs`, `tari_ootle_common_types`, `tari_template_lib_types`) are pulled from
-[crates.io](https://crates.io/crates/ootle-rs), so the repository builds standalone.
-
 ## License
 
 BSD-3-Clause.
