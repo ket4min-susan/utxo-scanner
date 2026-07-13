@@ -52,8 +52,8 @@ pub struct UtxoQuery<'a> {
     pub spend_state: Option<SpendState>,
     pub decrypt_state: Option<DecryptState>,
     pub utxo_id: Option<UtxoId>,
-    /// Keyset cursor: `(created_state_version, utxo_id)` of the last row of the previous page.
-    pub after: Option<(u64, UtxoId)>,
+    /// Keyset cursor: the `rowid` of the last row of the previous page.
+    pub after: Option<i64>,
     pub limit: u32,
 }
 
@@ -289,7 +289,7 @@ impl Store {
 
     pub async fn list_utxos(&self, address: &ResourceAddress) -> Result<Vec<UtxoRow>, StoreError> {
         sqlx::query(&format!(
-            "SELECT {UTXO_COLUMNS} FROM utxos WHERE resource_address = ? ORDER BY created_state_version, utxo_id"
+            "SELECT {UTXO_COLUMNS} FROM utxos WHERE resource_address = ? ORDER BY rowid DESC"
         ))
         .bind(address.to_string())
         .fetch_all(&self.pool)
@@ -299,12 +299,10 @@ impl Store {
         .collect()
     }
 
-    /// Keyset-paginated UTXO listing, ordered by `(created_state_version, utxo_id)` descending
-    /// (newest first). Pass the last row's `(created_state_version, utxo_id)` as `after` to fetch
+    /// Keyset-paginated UTXO listing in discovery order — most recently scanned first (`rowid`, the
+    /// monotonic insertion counter, descending). Pass the last row's `rowid` as `after` to fetch
     /// the next page. Optional exact/state filters narrow the result.
     pub async fn query_utxos(&self, query: &UtxoQuery<'_>) -> Result<Vec<UtxoRow>, StoreError> {
-        // NULL created_state_version (NoCiphertext rows) sorts last under DESC; coalesce to -1 so
-        // the keyset comparison stays total.
         let mut sql = format!("SELECT {UTXO_COLUMNS} FROM utxos WHERE resource_address = ?");
         if query.spend_state.is_some() {
             sql.push_str(" AND spend_state = ?");
@@ -316,9 +314,9 @@ impl Store {
             sql.push_str(" AND utxo_id = ?");
         }
         if query.after.is_some() {
-            sql.push_str(" AND (COALESCE(created_state_version, -1), utxo_id) < (?, ?)");
+            sql.push_str(" AND rowid < ?");
         }
-        sql.push_str(" ORDER BY COALESCE(created_state_version, -1) DESC, utxo_id DESC LIMIT ?");
+        sql.push_str(" ORDER BY rowid DESC LIMIT ?");
 
         let mut q = sqlx::query(&sql).bind(query.resource_address.to_string());
         if let Some(spend) = query.spend_state {
@@ -330,8 +328,8 @@ impl Store {
         if let Some(id) = query.utxo_id {
             q = q.bind(id.as_bytes().to_vec());
         }
-        if let Some((version, id)) = query.after {
-            q = q.bind(version as i64).bind(id.as_bytes().to_vec());
+        if let Some(rowid) = query.after {
+            q = q.bind(rowid);
         }
         q = q.bind(query.limit as i64);
 
@@ -559,7 +557,7 @@ impl Store {
     }
 }
 
-const UTXO_COLUMNS: &str = "resource_address, utxo_id, tag, fetch_nonce, ciphertext, value, spend_state, \
+const UTXO_COLUMNS: &str = "rowid, resource_address, utxo_id, tag, fetch_nonce, ciphertext, value, spend_state, \
                             decrypt_state, fail_lookup_max, created_epoch, created_state_version, spent_epoch, \
                             spent_state_version, first_seen_at, updated_at";
 
@@ -616,6 +614,7 @@ fn decode_utxo(row: &SqliteRow) -> Result<UtxoRow, StoreError> {
     let spent_state_version: Option<i64> = row.try_get("spent_state_version")?;
 
     Ok(UtxoRow {
+        rowid: row.try_get("rowid")?,
         resource_address: ResourceAddress::from_str(&address).map_err(|e| corrupt("utxos", e.to_string()))?,
         utxo_id: UtxoId::from_array(
             utxo_id

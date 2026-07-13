@@ -106,6 +106,9 @@ pub struct ResourceRow {
 
 #[derive(Debug, Clone)]
 pub struct UtxoRow {
+    /// sqlite rowid — a monotonic insertion counter, used as the discovery-order sort key and
+    /// keyset-pagination cursor.
+    pub rowid: i64,
     pub resource_address: ResourceAddress,
     pub utxo_id: UtxoId,
     pub tag: Option<UtxoTag>,

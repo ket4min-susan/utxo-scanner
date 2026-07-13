@@ -267,6 +267,46 @@ async fn requeue_out_of_range_only_widens_coverage() {
 }
 
 #[tokio::test]
+async fn query_utxos_orders_by_discovery_not_state_version() {
+    let (store, address) = store_with_resource().await;
+
+    // Discover utxo 1 first, in a shard with a HIGH state version; then utxo 2, in a shard with a
+    // LOWER state version. Per-shard state versions are not globally monotonic, so discovery order
+    // (utxo 2 newest) must win over state-version order.
+    store
+        .apply_shard_batch(&address, &batch(1, 9000), &[new_unspent(1)])
+        .await
+        .unwrap();
+    store
+        .apply_shard_batch(&address, &batch(2, 10), &[new_unspent(2)])
+        .await
+        .unwrap();
+
+    let page1 = store
+        .query_utxos(&UtxoQuery {
+            limit: 1,
+            ..UtxoQuery::new(&address)
+        })
+        .await
+        .unwrap();
+    assert_eq!(page1.len(), 1);
+    assert_eq!(page1[0].utxo_id, utxo_id(2), "most recently discovered comes first");
+
+    // Keyset page 2 by the last row's rowid.
+    let page2 = store
+        .query_utxos(&UtxoQuery {
+            limit: 1,
+            after: Some(page1[0].rowid),
+            ..UtxoQuery::new(&address)
+        })
+        .await
+        .unwrap();
+    assert_eq!(page2.len(), 1);
+    assert_eq!(page2[0].utxo_id, utxo_id(1));
+    assert!(page2[0].rowid < page1[0].rowid);
+}
+
+#[tokio::test]
 async fn utxo_counts_group_both_axes() {
     let (store, address) = store_with_resource().await;
 

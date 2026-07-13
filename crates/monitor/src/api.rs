@@ -404,23 +404,12 @@ async fn status(State(monitor): State<Monitor>) -> ApiResult<Json<StatusDto>> {
 
 // ---------------------------------- keyset cursor ----------------------------------
 
-/// Opaque cursor over `(created_state_version, utxo_id)`. `NULL` version (NoCiphertext rows)
-/// encodes as `-1` so the keyset comparison matches the query's `COALESCE(..., -1)`.
+/// Opaque cursor over the row's `rowid` (discovery order).
 fn encode_cursor(row: &UtxoRow) -> String {
-    format!(
-        "{}:{}",
-        row.created_state_version.map(|v| v as i64).unwrap_or(-1),
-        hex::encode(row.utxo_id.as_bytes())
-    )
+    row.rowid.to_string()
 }
 
-fn decode_cursor(raw: &str) -> ApiResult<(u64, UtxoId)> {
-    let (version, id) = raw
-        .split_once(':')
-        .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "malformed cursor"))?;
-    let version: i64 = version
-        .parse()
-        .map_err(|_| ApiError::new(StatusCode::BAD_REQUEST, "malformed cursor version"))?;
-    let id = UtxoId::from_hex(id).map_err(|_| ApiError::new(StatusCode::BAD_REQUEST, "malformed cursor id"))?;
-    Ok((version.max(-1) as u64, id))
+fn decode_cursor(raw: &str) -> ApiResult<i64> {
+    raw.parse::<i64>()
+        .map_err(|_| ApiError::new(StatusCode::BAD_REQUEST, "malformed cursor"))
 }
