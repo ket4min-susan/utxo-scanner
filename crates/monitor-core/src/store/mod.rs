@@ -396,11 +396,14 @@ impl Store {
 
     /// Records per-UTXO decrypt outcomes in one transaction. `coverage_max` is the current
     /// lookup file's upper bound, stamped on out-of-range rows to drive later auto-retry.
+    /// `per_row_micros` is each row's share of its chunk's decrypt time (see
+    /// [`DecryptedChunk`](crate::decrypt::DecryptedChunk)).
     pub async fn record_decrypt_outcomes(
         &self,
         address: &ResourceAddress,
         outcomes: &[(UtxoId, crate::decrypt::DecryptOutcome)],
         coverage_max: u64,
+        per_row_micros: u64,
     ) -> Result<(), StoreError> {
         use crate::decrypt::DecryptOutcome;
 
@@ -414,12 +417,13 @@ impl Store {
                 DecryptOutcome::Malformed => (DecryptState::Failed, None, None),
             };
             sqlx::query(
-                "UPDATE utxos SET decrypt_state = ?, value = ?, fail_lookup_max = ?, updated_at = ? WHERE \
-                 resource_address = ? AND utxo_id = ?",
+                "UPDATE utxos SET decrypt_state = ?, value = ?, fail_lookup_max = ?, decrypt_micros = ?, updated_at = \
+                 ? WHERE resource_address = ? AND utxo_id = ?",
             )
             .bind(state.as_str())
             .bind(value)
             .bind(fail_lookup_max)
+            .bind(per_row_micros as i64)
             .bind(now)
             .bind(&address)
             .bind(id.as_bytes().as_slice())
@@ -434,8 +438,9 @@ impl Store {
     /// exceeds the coverage recorded at their last failed attempt. Returns the number requeued.
     pub async fn requeue_out_of_range(&self, address: &ResourceAddress, coverage_max: u64) -> Result<u64, StoreError> {
         let res = sqlx::query(
-            "UPDATE utxos SET decrypt_state = ?, fail_lookup_max = NULL, updated_at = ? WHERE resource_address = ? \
-             AND decrypt_state = ? AND ciphertext IS NOT NULL AND (fail_lookup_max IS NULL OR fail_lookup_max < ?)",
+            "UPDATE utxos SET decrypt_state = ?, fail_lookup_max = NULL, decrypt_micros = NULL, updated_at = ? WHERE \
+             resource_address = ? AND decrypt_state = ? AND ciphertext IS NOT NULL AND (fail_lookup_max IS NULL OR \
+             fail_lookup_max < ?)",
         )
         .bind(DecryptState::Decrypting.as_str())
         .bind(Utc::now())
@@ -558,8 +563,8 @@ impl Store {
 }
 
 const UTXO_COLUMNS: &str = "rowid, resource_address, utxo_id, tag, fetch_nonce, ciphertext, value, spend_state, \
-                            decrypt_state, fail_lookup_max, created_epoch, created_state_version, spent_epoch, \
-                            spent_state_version, first_seen_at, updated_at";
+                            decrypt_state, fail_lookup_max, decrypt_micros, created_epoch, created_state_version, \
+                            spent_epoch, spent_state_version, first_seen_at, updated_at";
 
 fn corrupt(table: &'static str, details: impl Into<String>) -> StoreError {
     StoreError::CorruptRow {
@@ -608,6 +613,7 @@ fn decode_utxo(row: &SqliteRow) -> Result<UtxoRow, StoreError> {
     let fetch_nonce: Option<Vec<u8>> = row.try_get("fetch_nonce")?;
     let value: Option<i64> = row.try_get("value")?;
     let fail_lookup_max: Option<i64> = row.try_get("fail_lookup_max")?;
+    let decrypt_micros: Option<i64> = row.try_get("decrypt_micros")?;
     let created_epoch: Option<i64> = row.try_get("created_epoch")?;
     let created_state_version: Option<i64> = row.try_get("created_state_version")?;
     let spent_epoch: Option<i64> = row.try_get("spent_epoch")?;
@@ -630,6 +636,7 @@ fn decode_utxo(row: &SqliteRow) -> Result<UtxoRow, StoreError> {
         spend_state: decode_enum(row, "spend_state", "utxos")?,
         decrypt_state: decode_enum(row, "decrypt_state", "utxos")?,
         fail_lookup_max: fail_lookup_max.map(|v| v as u64),
+        decrypt_micros: decrypt_micros.map(|v| v as u64),
         created_epoch: created_epoch.map(|v| v as u64),
         created_state_version: created_state_version.map(|v| v as u64),
         spent_epoch: spent_epoch.map(|v| v as u64),

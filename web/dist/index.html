@@ -221,7 +221,7 @@
     </div>
     <div class="tbl-scroll">
       <table>
-        <thead><tr><th>UTXO id</th><th>Value</th><th>Spend</th><th>Decrypt</th><th class="num">Tag</th><th class="num">Created v</th></tr></thead>
+        <thead><tr><th>UTXO id</th><th>Value</th><th>Spend</th><th>Decrypt</th><th class="num" title="This row's share of its decrypt batch's elapsed time">Decrypt time</th><th class="num">Created v</th></tr></thead>
         <tbody id="utxo-rows"></tbody>
       </table>
     </div>
@@ -258,6 +258,12 @@ function fmtValue(v, div) {
   const whole = s.slice(0, -div) || '0';
   const frac = s.slice(-div).replace(/0+$/, '');
   return { txt: whole + (frac ? '.' + frac : ''), dim: false };
+}
+// Rows decrypt in batches, so this is the row's share of its chunk's time, not an isolated cost.
+function fmtDecryptTime(us) {
+  if (us == null) return '—';
+  if (us < 1000) return us + ' µs';
+  return (us / 1000).toFixed(us < 10000 ? 2 : 1) + ' ms';
 }
 const chip = (cls, txt) => el('span', { class: 'chip ' + cls.toLowerCase() }, txt);
 
@@ -399,7 +405,7 @@ async function loadUtxos(reset = true) {
       el('td', { class: 'val' + (v.dim ? ' dim' : '') }, v.txt),
       el('td', {}, chip(u.spend_state, u.spend_state)),
       el('td', {}, chip(u.decrypt_state, u.decrypt_state === 'FailedOutOfRange' ? 'out-of-range' : u.decrypt_state)),
-      el('td', { class: 'num mono-id' }, u.tag ?? '—'),
+      el('td', { class: 'num mono-id' + (u.decrypt_micros == null ? ' dim' : '') }, fmtDecryptTime(u.decrypt_micros)),
       el('td', { class: 'num mono-id' }, u.created_state_version ?? '—'),
     ));
   }

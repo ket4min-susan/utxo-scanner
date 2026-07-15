@@ -8,7 +8,7 @@
 //! survives the indexer's spend-pruning and out-of-range rows can be retried against a wider
 //! lookup file without refetching.
 
-use std::{fs::File, ops::RangeInclusive, path::Path, sync::Arc};
+use std::{fs::File, ops::RangeInclusive, path::Path, sync::Arc, time::Instant};
 
 use futures::{StreamExt, stream::FuturesUnordered};
 use ootle_rs::crypto::SortedPrefixFileLookup;
@@ -39,6 +39,18 @@ pub enum DecryptOutcome {
     OutOfRange,
     /// -> `Failed` (hard: the stored ciphertext is not a valid ElGamal ciphertext)
     Malformed,
+}
+
+/// One chunk's decrypt results plus its per-row cost.
+///
+/// The chunk resolves in a single batched [`ValueLookup`] pass, so no row has a decrypt time of
+/// its own: `per_row_micros` is the chunk's elapsed time spread evenly over its rows. It is a
+/// throughput figure — useful for comparing chunks and spotting a slow lookup file — not the cost
+/// of decrypting any one output in isolation.
+#[derive(Debug, Clone)]
+pub struct DecryptedChunk {
+    pub outcomes: Vec<(UtxoId, DecryptOutcome)>,
+    pub per_row_micros: u64,
 }
 
 /// The memory-mapped value-lookup file, opened once at startup and shared across all decrypt
@@ -200,10 +212,10 @@ impl DecryptPool {
                 .map(|chunk| self.decrypt_chunk(chunk.to_vec(), view_secret.clone()))
                 .collect::<FuturesUnordered<_>>();
 
-            while let Some(outcomes) = chunks.next().await {
-                processed += outcomes.len() as u64;
+            while let Some(chunk) = chunks.next().await {
+                processed += chunk.outcomes.len() as u64;
                 self.store
-                    .record_decrypt_outcomes(resource_address, &outcomes, coverage_max)
+                    .record_decrypt_outcomes(resource_address, &chunk.outcomes, coverage_max, chunk.per_row_micros)
                     .await?;
             }
         }
@@ -232,11 +244,9 @@ impl DecryptPool {
         Ok(requeued)
     }
 
-    async fn decrypt_chunk(
-        &self,
-        chunk: Vec<(UtxoId, Vec<u8>)>,
-        view_secret: RistrettoSecretKey,
-    ) -> Vec<(UtxoId, DecryptOutcome)> {
+    /// Decrypts one chunk, returning the outcomes alongside each row's amortized share of the
+    /// chunk's decrypt time (see [`DecryptedChunk`]).
+    async fn decrypt_chunk(&self, chunk: Vec<(UtxoId, Vec<u8>)>, view_secret: RistrettoSecretKey) -> DecryptedChunk {
         let _permit = self
             .permits
             .clone()
@@ -245,9 +255,20 @@ impl DecryptPool {
             .expect("decrypt semaphore is never closed");
         let lookup = self.lookup.clone();
         debug!(rows = chunk.len(), "decrypting chunk");
-        tokio::task::spawn_blocking(move || decrypt_ciphertexts(&view_secret, &chunk, &lookup.lookup))
-            .await
-            .expect("decrypt task never panics")
+        // Timed inside the blocking task so the measurement covers only the crypto work — not the
+        // wait for a worker permit, which says more about pool contention than about the row.
+        tokio::task::spawn_blocking(move || {
+            let started = Instant::now();
+            let outcomes = decrypt_ciphertexts(&view_secret, &chunk, &lookup.lookup);
+            let elapsed = started.elapsed();
+            let per_row_micros = elapsed.as_micros() as u64 / outcomes.len().max(1) as u64;
+            DecryptedChunk {
+                outcomes,
+                per_row_micros,
+            }
+        })
+        .await
+        .expect("decrypt task never panics")
     }
 }
 

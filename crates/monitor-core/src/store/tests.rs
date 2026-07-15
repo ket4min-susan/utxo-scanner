@@ -219,6 +219,7 @@ async fn decrypt_outcomes_transition_rows_and_are_paged() {
                 (utxo_id(3), DecryptOutcome::Malformed),
             ],
             1000,
+            42,
         )
         .await
         .unwrap();
@@ -226,11 +227,14 @@ async fn decrypt_outcomes_transition_rows_and_are_paged() {
     let decrypted = store.get_utxo(&address, &utxo_id(1)).await.unwrap();
     assert_eq!(decrypted.decrypt_state, DecryptState::Decrypted);
     assert_eq!(decrypted.value, Some(500));
+    assert_eq!(decrypted.decrypt_micros, Some(42));
 
     let oor = store.get_utxo(&address, &utxo_id(2)).await.unwrap();
     assert_eq!(oor.decrypt_state, DecryptState::FailedOutOfRange);
     assert_eq!(oor.fail_lookup_max, Some(1000));
     assert_eq!(oor.value, None);
+    // Timing is recorded for every attempt, not only the ones that resolve a value.
+    assert_eq!(oor.decrypt_micros, Some(42));
 
     let hard = store.get_utxo(&address, &utxo_id(3)).await.unwrap();
     assert_eq!(hard.decrypt_state, DecryptState::Failed);
@@ -247,7 +251,7 @@ async fn requeue_out_of_range_only_widens_coverage() {
         .await
         .unwrap();
     store
-        .record_decrypt_outcomes(&address, &[(utxo_id(1), DecryptOutcome::OutOfRange)], 1000)
+        .record_decrypt_outcomes(&address, &[(utxo_id(1), DecryptOutcome::OutOfRange)], 1000, 42)
         .await
         .unwrap();
 
@@ -263,6 +267,8 @@ async fn requeue_out_of_range_only_widens_coverage() {
     let row = store.get_utxo(&address, &utxo_id(1)).await.unwrap();
     assert_eq!(row.decrypt_state, DecryptState::Decrypting);
     assert_eq!(row.fail_lookup_max, None);
+    // The pending row has no decrypt time until its retry lands.
+    assert_eq!(row.decrypt_micros, None);
     assert_eq!(store.list_pending_decrypt(&address, 100).await.unwrap().len(), 1);
 }
 

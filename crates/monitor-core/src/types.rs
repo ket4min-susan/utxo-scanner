@@ -119,6 +119,10 @@ pub struct UtxoRow {
     pub spend_state: SpendState,
     pub decrypt_state: DecryptState,
     pub fail_lookup_max: Option<u64>,
+    /// This row's share of its decrypt chunk's elapsed time. `None` until a decrypt attempt is
+    /// recorded. See [`DecryptedChunk`](crate::decrypt::DecryptedChunk) — rows are decrypted in
+    /// batches, so this is an amortized figure, not an isolated per-output measurement.
+    pub decrypt_micros: Option<u64>,
     pub created_epoch: Option<u64>,
     pub created_state_version: Option<u64>,
     pub spent_epoch: Option<u64>,
